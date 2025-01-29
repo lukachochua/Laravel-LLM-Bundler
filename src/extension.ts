@@ -2,8 +2,20 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 
-// Default configuration that can be overridden
-const DEFAULT_CONFIG = {
+interface FileRelationship {
+	path: string;
+	pattern: (baseName: string) => string;
+}
+
+interface BundleConfiguration {
+	includedPaths: string[];
+	fileRelationships: Record<string, {
+		pattern: RegExp;
+		related: FileRelationship[];
+	}>;
+}
+
+export const DEFAULT_CONFIG: BundleConfiguration = {
 	includedPaths: [
 		'app/Http/Controllers/',
 		'app/Services/',
@@ -16,12 +28,12 @@ const DEFAULT_CONFIG = {
 			pattern: /Controller\.php$/,
 			related: [
 				{
-					path: 'Services', pattern: (baseName: string) =>
-						baseName.replace('Controller', 'Service') + '.php'
+					path: 'app/Services',
+					pattern: (baseName: string) => `${baseName.replace('Controller', 'Service')}.php`
 				},
 				{
-					path: 'Repositories', pattern: (baseName: string) =>
-						baseName.replace('Controller', 'Repository') + '.php'
+					path: 'app/Repositories',
+					pattern: (baseName: string) => `${baseName.replace('Controller', 'Repository')}.php`
 				}
 			]
 		},
@@ -29,129 +41,117 @@ const DEFAULT_CONFIG = {
 			pattern: /Service\.php$/,
 			related: [
 				{
-					path: 'Controllers', pattern: (baseName: string) =>
-						baseName.replace('Service', 'Controller') + '.php'
+					path: 'app/Http/Controllers',
+					pattern: (baseName: string) => `${baseName.replace('Service', 'Controller')}.php`
 				},
 				{
-					path: 'Actions', pattern: (baseName: string) =>
-						baseName.replace('Service', 'Action') + '.php'
+					path: 'app/Actions',
+					pattern: (baseName: string) => `${baseName.replace('Service', 'Action')}.php`
 				}
 			]
 		}
 	}
 };
 
-interface BundleConfiguration {
-	includedPaths: string[];
-	fileRelationships: Record<string, {
-		pattern: RegExp;
-		related: Array<{
-			path: string;
-			pattern: (baseName: string) => string;
-		}>;
-	}>;
-}
-
 export function activate(context: vscode.ExtensionContext) {
-	// Register configuration command
-	let configureCommand = vscode.commands.registerCommand(
-		'laravel-bundler.configure',
-		async () => {
-			await showConfigurationDialog();
-		}
+	context.subscriptions.push(
+		vscode.commands.registerCommand('laravel-bundler.bundle', handleBundleCommand),
+		vscode.commands.registerCommand('laravel-bundler.configure', handleConfigureCommand)
 	);
-
-	// Register bundle command
-	let bundleCommand = vscode.commands.registerCommand(
-		'laravel-bundler.bundle',
-		async () => {
-			const workspaceFolders = vscode.workspace.workspaceFolders;
-			if (!workspaceFolders) {
-				vscode.window.showErrorMessage('No workspace open');
-				return;
-			}
-
-			const config = await getConfiguration();
-			if (!config) {
-				return;
-			}
-
-			const rootPath = workspaceFolders[0].uri.fsPath;
-			const outputContent = await bundleLaravelCode(rootPath, config);
-
-			const doc = await vscode.workspace.openTextDocument({
-				content: outputContent,
-				language: 'php'
-			});
-
-			await vscode.window.showTextDocument(doc);
-		}
-	);
-
-	context.subscriptions.push(configureCommand, bundleCommand);
 }
 
-async function showConfigurationDialog(): Promise<void> {
-	const config = vscode.workspace.getConfiguration('laravelBundler');
-	const currentPaths = config.get<string[]>('includedPaths') || DEFAULT_CONFIG.includedPaths;
-
-	// Show quick pick for paths
-	const selectedPaths = await vscode.window.showQuickPick(
-		currentPaths.map(path => ({
-			label: path,
-			picked: true
-		})).concat(
-			// Allow adding new paths
-			{ label: '$(add) Add new path...', picked: false }
-		),
-		{
-			canPickMany: true,
-			placeHolder: 'Select folders to include in bundle'
-		}
-	);
-
-	if (!selectedPaths) {
+async function handleBundleCommand() {
+	const workspaceFolders = vscode.workspace.workspaceFolders;
+	if (!workspaceFolders) {
+		vscode.window.showErrorMessage('No workspace open');
 		return;
 	}
 
-	// Handle adding new path
-	let finalPaths = selectedPaths
-		.filter(item => item.label !== '$(add) Add new path...')
-		.map(item => item.label);
+	const config = await getConfiguration();
+	if (!config) return;
 
-	if (selectedPaths.some(item => item.label === '$(add) Add new path...')) {
+	try {
+		const rootPath = workspaceFolders[0].uri.fsPath;
+		const outputContent = await generateBundle(rootPath, config);
+		const doc = await vscode.workspace.openTextDocument({ content: outputContent, language: 'php' });
+		await vscode.window.showTextDocument(doc);
+	} catch (error) {
+		vscode.window.showErrorMessage(`Bundle failed: ${error instanceof Error ? error.message : error}`);
+	}
+}
+
+async function handleConfigureCommand() {
+	const config = vscode.workspace.getConfiguration('laravelBundler');
+
+	// Get current paths, falling back to defaults if none exist
+	const currentPaths = config.get<string[]>('includedPaths') || [...DEFAULT_CONFIG.includedPaths];
+
+	// Create quick pick items with all available paths
+	const allPaths = new Set([...currentPaths, ...DEFAULT_CONFIG.includedPaths]);
+	const pathOptions = Array.from(allPaths).map(p => ({
+		label: p,
+		picked: currentPaths.includes(p)
+	}));
+
+	// Add the "Add new path" option
+	pathOptions.push({ label: '$(add) Add new path...', picked: false });
+
+	const selected = await vscode.window.showQuickPick(pathOptions, {
+		canPickMany: true,
+		placeHolder: 'Select folders to include in bundle'
+	});
+
+	if (!selected) return;
+
+	let finalPaths = selected
+		.filter(i => i.label !== '$(add) Add new path...')
+		.map(i => i.label);
+
+	if (selected.some(i => i.label === '$(add) Add new path...')) {
 		const newPath = await vscode.window.showInputBox({
-			prompt: 'Enter new path (relative to project root)',
-			placeHolder: 'app/CustomFolder/'
+			prompt: 'Enter new path relative to project root',
+			placeHolder: 'app/CustomFolder/',
+			validateInput: (value) => {
+				if (!value) return 'Path cannot be empty';
+				if (!value.endsWith('/')) return 'Path must end with a forward slash (/)';
+				return null;
+			}
 		});
+
 		if (newPath) {
 			finalPaths.push(newPath);
 		}
 	}
 
-	// Save configuration
+	// If no paths selected, offer to use defaults
+	if (finalPaths.length === 0) {
+		const useDefaults = await vscode.window.showWarningMessage(
+			'No paths selected. Would you like to use default paths?',
+			'Yes', 'No'
+		);
+
+		if (useDefaults === 'Yes') {
+			finalPaths = [...DEFAULT_CONFIG.includedPaths];
+		}
+	}
+
 	await config.update('includedPaths', finalPaths, vscode.ConfigurationTarget.Workspace);
-	vscode.window.showInformationMessage('Laravel Bundler configuration updated');
+	vscode.window.showInformationMessage(`Configuration updated with ${finalPaths.length} paths`);
 }
 
 async function getConfiguration(): Promise<BundleConfiguration | null> {
 	const config = vscode.workspace.getConfiguration('laravelBundler');
 	const includedPaths = config.get<string[]>('includedPaths');
 
-	if (!includedPaths || includedPaths.length === 0) {
-		const useDefault = await vscode.window.showQuickPick(
-			['Yes, use defaults', 'No, configure now'],
-			{
-				placeHolder: 'No configuration found. Use default settings?'
-			}
+	if (!includedPaths?.length) {
+		const choice = await vscode.window.showQuickPick(
+			['Use Defaults', 'Configure Now'],
+			{ placeHolder: 'No configuration found. Use default settings?' }
 		);
 
-		if (!useDefault) {
-			return null;
-		}
-
-		if (useDefault === 'No, configure now') {
-			await showConfigurationDialog();
+		if (!choice) return null;
+		if (choice === 'Configure Now') {
+			await vscode.commands.executeCommand('laravel-bundler.configure');
 			return getConfiguration();
 		}
 
@@ -159,30 +159,32 @@ async function getConfiguration(): Promise<BundleConfiguration | null> {
 	}
 
 	return {
-		includedPaths,
-		fileRelationships: DEFAULT_CONFIG.fileRelationships // Keep default relationships for now
+		includedPaths: includedPaths,
+		fileRelationships: DEFAULT_CONFIG.fileRelationships
 	};
 }
 
-async function bundleLaravelCode(rootPath: string, config: BundleConfiguration): Promise<string> {
-	let output = "<?php\n\n// LARAVEL LOGIC CODE BUNDLE\n\n";
+async function generateBundle(rootPath: string, config: BundleConfiguration): Promise<string> {
+	let output = "<?php\n\n// LARAVEL CODE BUNDLE\n\n";
 	const processedFiles = new Set<string>();
 
-	for (const includedPath of config.includedPaths) {
-		const fullPath = path.join(rootPath, includedPath);
+	for (const relPath of config.includedPaths) {
+		const fullPath = path.join(rootPath, relPath);
 		if (!fs.existsSync(fullPath)) {
+			console.log(`Path does not exist: ${fullPath}`);
 			continue;
 		}
 
-		const files = await findPhpFiles(fullPath);
-
-		for (const file of files) {
-			if (processedFiles.has(file)) {
-				continue;
+		try {
+			const files = await findPhpFiles(fullPath);
+			for (const file of files) {
+				if (!processedFiles.has(file)) {
+					output += await processFile(rootPath, file, processedFiles, config);
+				}
 			}
-
-			const fileContent = await processFile(rootPath, file, processedFiles, config);
-			output += fileContent;
+		} catch (error) {
+			console.error(`Error processing ${relPath}:`, error);
+			vscode.window.showErrorMessage(`Error processing ${relPath}: ${error instanceof Error ? error.message : error}`);
 		}
 	}
 
@@ -191,15 +193,13 @@ async function bundleLaravelCode(rootPath: string, config: BundleConfiguration):
 
 async function findPhpFiles(dirPath: string): Promise<string[]> {
 	const files: string[] = [];
+	const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
 
-	const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
-
-	for (const item of items) {
-		const fullPath = path.join(dirPath, item.name);
-
-		if (item.isDirectory()) {
+	for (const entry of entries) {
+		const fullPath = path.join(dirPath, entry.name);
+		if (entry.isDirectory()) {
 			files.push(...await findPhpFiles(fullPath));
-		} else if (item.name.endsWith('.php')) {
+		} else if (entry.name.endsWith('.php')) {
 			files.push(fullPath);
 		}
 	}
@@ -213,25 +213,16 @@ async function processFile(
 	processedFiles: Set<string>,
 	config: BundleConfiguration
 ): Promise<string> {
-	let output = '';
-	const relativePath = path.relative(rootPath, filePath);
-
-	if (processedFiles.has(filePath)) {
-		return output;
-	}
-
-	// Add the main file content
-	const content = await fs.promises.readFile(filePath, 'utf8');
-	output += `\n// FILE: ${relativePath}\n${content}\n`;
+	if (processedFiles.has(filePath)) return '';
 	processedFiles.add(filePath);
 
-	// Find and add related files
+	let output = `\n// FILE: ${path.relative(rootPath, filePath)}\n`;
+	output += await fs.promises.readFile(filePath, 'utf8');
+	output += '\n';
+
 	const relatedFiles = await findRelatedFiles(rootPath, filePath, config);
 	for (const relatedFile of relatedFiles) {
-		if (!processedFiles.has(relatedFile)) {
-			const relatedContent = await processFile(rootPath, relatedFile, processedFiles, config);
-			output += relatedContent;
-		}
+		output += await processFile(rootPath, relatedFile, processedFiles, config);
 	}
 
 	return output;
@@ -245,18 +236,14 @@ async function findRelatedFiles(
 	const relatedFiles: string[] = [];
 	const fileName = path.basename(filePath);
 
-	// Check each relationship pattern
-	for (const [type, typeConfig] of Object.entries(config.fileRelationships)) {
-		if (typeConfig.pattern.test(fileName)) {
-			const baseName = fileName.replace(typeConfig.pattern, '');
+	for (const { pattern, related } of Object.values(config.fileRelationships)) {
+		if (pattern.test(fileName)) {
+			const baseName = fileName.replace(pattern, '');
 
-			// Look for each related file type
-			for (const related of typeConfig.related) {
-				const relatedFileName = related.pattern(baseName);
-				const relatedPath = path.join(rootPath, 'app', related.path, relatedFileName);
-
-				if (fs.existsSync(relatedPath)) {
-					relatedFiles.push(relatedPath);
+			for (const rel of related) {
+				const relPath = path.join(rootPath, rel.path, rel.pattern(baseName));
+				if (fs.existsSync(relPath)) {
+					relatedFiles.push(relPath);
 				}
 			}
 		}
