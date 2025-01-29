@@ -1,72 +1,87 @@
-# laravel-code-bundler README
+# Laravel Code Bundler
 
-This is the README for your extension "laravel-code-bundler". After writing up a brief description, we recommend including the following sections.
+A Visual Studio Code extension that bundles your Laravel project files into a single document for easy code review and sharing.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+* Combines all relevant Laravel project files into a single text document
+* Automatically excludes common non-essential directories and files
+* Preserves file structure and organization through clear file headers
+* Maintains original file content with proper formatting
+* Simple one-click command activation
 
-For example if there is an image subfolder under your extension project workspace:
+## Installation
 
-\!\[feature X\]\(images/feature-x.png\)
+1. Open Visual Studio Code
+2. Press `Ctrl+P` (Windows/Linux) or `Cmd+P` (macOS)
+3. Type `ext install laravel-bundler`
+4. Press Enter
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+## Usage
+
+### Command Palette
+1. Open the command palette (`Ctrl+Shift+P` or `Cmd+Shift+P`)
+2. Type "Laravel: Bundle Project Files"
+3. Press Enter
+
+### Default Excluded Paths
+
+The following paths are automatically excluded from bundling:
+
+* Documentation files (`**/*.md`, `**/*.txt`)
+* Configuration files (`.editorconfig`, `.env.example`, etc.)
+* Build/compile files (`postcss.config.js`, `tailwind.config.js`, `vite.config.js`)
+* Framework directories:
+  * `bootstrap/cache/`
+  * `config/`
+  * `database/factories/`
+  * `database/seeders/`
+  * `node_modules/`
+  * `public/`
+  * `resources/css/`
+  * `resources/js/`
+  * `storage/`
+  * `tests/`
+* Common Laravel app directories:
+  * `app/Http/Middleware/`
+  * `app/Http/Requests/`
+  * `app/Providers/`
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+* Visual Studio Code 1.60.0 or higher
+* Active Laravel project workspace
 
 ## Extension Settings
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+This extension currently does not add any custom settings.
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+* Large projects may take longer to bundle
+* Memory usage may increase with project size
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
-
 ### 1.0.0
 
-Initial release of ...
+* Initial release
+* Basic bundling functionality
+* Pre-configured exclusion paths
 
-### 1.0.1
+## Contributing
 
-Fixed issue #.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-### 1.1.0
+## License
 
-Added features X, Y, and Z.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
----
+## Acknowledgments
 
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
-"# Laravel-LLM-Bundler" 
+* Inspired by the Laravel community's need for easy code sharing
+* Built for Laravel 11 and above

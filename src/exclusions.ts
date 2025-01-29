@@ -1,0 +1,23 @@
+export const EXCLUDED_PATHS = [
+    '**/*.md',
+    '**/*.txt',
+    '.editorconfig',
+    '.env.example',
+    'phpunit.xml',
+    'postcss.config.js',
+    'tailwind.config.js',
+    'vite.config.js',
+    'bootstrap/cache/',
+    'config/',
+    'database/factories/',
+    'database/seeders/',
+    'node_modules/',
+    'public/',
+    'resources/css/',
+    'resources/js/',
+    'storage/',
+    'tests/',
+    'app/Http/Middleware/',
+    'app/Http/Requests/',
+    'app/Providers/'
+];
