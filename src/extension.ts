@@ -82,25 +82,18 @@ async function handleBundleCommand() {
 
 async function handleConfigureCommand() {
 	const config = vscode.workspace.getConfiguration('laravelBundler');
-
-	// Get current paths, falling back to defaults if none exist
 	const currentPaths = config.get<string[]>('includedPaths') || [...DEFAULT_CONFIG.includedPaths];
-
-	// Create quick pick items with all available paths
 	const allPaths = new Set([...currentPaths, ...DEFAULT_CONFIG.includedPaths]);
 	const pathOptions = Array.from(allPaths).map(p => ({
 		label: p,
 		picked: currentPaths.includes(p)
 	}));
-
-	// Add the "Add new path" option
 	pathOptions.push({ label: '$(add) Add new path...', picked: false });
 
 	const selected = await vscode.window.showQuickPick(pathOptions, {
 		canPickMany: true,
 		placeHolder: 'Select folders to include in bundle'
 	});
-
 	if (!selected) return;
 
 	let finalPaths = selected
@@ -112,31 +105,33 @@ async function handleConfigureCommand() {
 			prompt: 'Enter new path relative to project root',
 			placeHolder: 'app/CustomFolder/',
 			validateInput: (value) => {
-				if (!value) return 'Path cannot be empty';
-				if (!value.endsWith('/')) return 'Path must end with a forward slash (/)';
+				const trimmed = value.trim();
+				if (!trimmed) return 'Path cannot be empty';
+				if (trimmed.startsWith('/') || trimmed.startsWith('\\'))
+					return 'Path must be relative (no leading slash/backslash)';
+				if (!trimmed.endsWith('/'))
+					return 'Path must end with a forward slash (/)';
 				return null;
 			}
 		});
-
 		if (newPath) {
-			finalPaths.push(newPath);
+			finalPaths.push(newPath.trim()); // Trim whitespace
 		}
 	}
 
-	// If no paths selected, offer to use defaults
 	if (finalPaths.length === 0) {
 		const useDefaults = await vscode.window.showWarningMessage(
-			'No paths selected. Would you like to use default paths?',
-			'Yes', 'No'
+			'No paths selected. Use default paths?', 'Yes', 'No'
 		);
-
-		if (useDefaults === 'Yes') {
-			finalPaths = [...DEFAULT_CONFIG.includedPaths];
-		}
+		if (useDefaults === 'Yes') finalPaths = [...DEFAULT_CONFIG.includedPaths];
 	}
 
-	await config.update('includedPaths', finalPaths, vscode.ConfigurationTarget.Workspace);
-	vscode.window.showInformationMessage(`Configuration updated with ${finalPaths.length} paths`);
+	try {
+		await config.update('includedPaths', finalPaths, vscode.ConfigurationTarget.Workspace);
+		vscode.window.showInformationMessage(`Configuration updated with ${finalPaths.length} paths`);
+	} catch (error) {
+		vscode.window.showErrorMessage(`Failed to save configuration: ${error instanceof Error ? error.message : error}`);
+	}
 }
 
 async function getConfiguration(): Promise<BundleConfiguration | null> {

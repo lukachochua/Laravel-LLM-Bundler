@@ -20,8 +20,8 @@ export const EXCLUDED_PATHS = [
     'app/Http/Middleware/',
     'app/Http/Requests/',
     'app/Providers/',
-    'vendor/', 
-    '.git/', 
-    '.idea/', 
-    '.vscode/' 
+    'vendor/',
+    '.git/',
+    '.idea/',
+    '.vscode/'
 ];
